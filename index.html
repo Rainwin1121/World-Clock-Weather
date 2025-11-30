@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全球实时时间监控系统</title>
+    
+    <!-- 引入 Leaflet 地图库 CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    
+    <!-- 引入 Google Fonts (科技感字体) -->
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
+    <!-- 引入 Tailwind CSS 用于快速布局 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        :root {
+            --bg-color: #0b0c10;
+            --text-color: #66fcf1;
+            --accent-color: #45a29e;
+            --highlight-color: #ff0055; /* 赫尔辛基高亮色 */
+        }
+
+        body, html {
+            height: 100%;
+            margin: 0;
+            background-color: var(--bg-color);
+            font-family: 'Share Tech Mono', monospace;
+            overflow: hidden; /* 防止滚动条 */
+            color: white;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+            z-index: 1;
+            background: #0b0c10;
+        }
+
+        /* 自定义地图标记样式 - 现代化毛玻璃风格 */
+        .city-label {
+            /* 透明背景 + 模糊滤镜 (Glassmorphism) */
+            background: rgba(20, 25, 30, 0.25); 
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            
+            /* 边框改为更淡的整体微光 */
+            border: 1px solid rgba(100, 255, 218, 0.2);
+            
+            /* 现代圆角 */
+            border-radius: 16px;
+            
+            padding: 6px 10px;
+            white-space: nowrap;
+            font-size: 14px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); /* 阴影也稍微柔和一点 */
+            transition: all 0.3s ease;
+            text-align: center;
+            
+            /* Flex 布局实现紧凑排列 */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 0px; 
+        }
+
+        .city-label strong {
+            display: block;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.6);
+            letter-spacing: 1px;
+            margin-bottom: 0px; 
+            line-height: 1.2;
+        }
+
+        .city-label span.time-display {
+            font-size: 22px; 
+            color: var(--text-color);
+            font-weight: bold;
+            display: block;
+            line-height: 1.1; 
+            margin: 1px 0;    
+            text-shadow: 0 0 5px rgba(102, 252, 241, 0.4);
+        }
+
+        .city-label .date-info {
+            font-size: 10px;
+            color: #aaa;
+            line-height: 1.2;
+            margin: 0;
+        }
+
+        /* 天气信息主样式 (当前温度) */
+        .city-label .weather-info {
+            /* 主温度加大、加粗 */
+            font-size: 15px; 
+            font-weight: bold; 
+            color: #fff;
+            
+            line-height: 1.2;
+            margin-top: 2px;
+            
+            /* Flex 布局保证垂直居中对齐 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* 分隔符样式 */
+        .weather-divider {
+            margin: 0 6px;
+            color: var(--accent-color);
+            opacity: 0.5;
+            font-size: 12px;
+            font-weight: normal;
+        }
+
+        /* 高低温范围样式 (小字号) */
+        .temp-range {
+            font-size: 11px; /* 明显比主温度小 */
+            font-weight: normal;
+            color: #bbb; /* 颜色稍微暗淡一点，区分层级 */
+            font-family: sans-serif; /* 用无衬线字体让数字更紧凑清晰 */
+        }
+
+        /* 赫尔辛基特别样式 */
+        .city-label.highlight {
+            border-color: var(--highlight-color);
+            border-width: 1px;
+            
+            /* 赫尔辛基也相应调透亮一点，但保持醒目 */
+            background: rgba(40, 0, 15, 0.4); 
+            box-shadow: 0 0 30px rgba(255, 0, 85, 0.3);
+            
+            transform: scale(1.25);
+            z-index: 9999 !important;
+        }
+
+        .city-label.highlight span.time-display {
+            color: #ff3377;
+            font-size: 26px;
+            text-shadow: 0 0 15px rgba(255, 0, 85, 0.6);
+        }
+        
+        .city-label.highlight strong {
+            color: #fff;
+            font-size: 12px;
+            font-weight: 900;
+        }
+        
+        .city-label.highlight .weather-info {
+             color: #ff99bb; /* 主温度变粉色 */
+        }
+        
+        .city-label.highlight .temp-range {
+            color: #ffcce0; /* 范围变淡粉色 */
+        }
+        
+        .city-label.highlight .weather-divider {
+            color: #ff3377;
+        }
+
+        /* UI 覆盖层 */
+        .overlay-ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            pointer-events: none; /* 让点击穿透到地图 */
+        }
+
+        .system-status {
+            background: rgba(0, 0, 0, 0.4); /* UI 面板更透亮 */
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(102, 252, 241, 0.2);
+            padding: 20px; /* 稍微增加内边距 */
+            border-radius: 12px;
+            min-width: 200px; /* 确保有一定宽度 */
+        }
+
+        .blink {
+            animation: blinker 1.5s linear infinite;
+        }
+
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+
+        /* 移除 Leaflet 版权链接的背景使其更融合 */
+        .leaflet-control-attribution {
+            background: rgba(0,0,0,0.2) !important;
+            color: #555 !important;
+            backdrop-filter: blur(2px);
+        }
+        .leaflet-control-attribution a {
+            color: #777 !important;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- UI 覆盖层 -->
+    <div class="overlay-ui">
+        <div class="system-status">
+            <h1 class="text-xl font-bold mb-1" style="color: var(--text-color);">WORLD CLOCK</h1>
+            <div class="text-xs text-gray-400 mb-4">LOCATION: HELSINKI</div>
+            
+            <div id="utc-time" class="text-3xl mt-2 text-white font-bold tracking-wider">UTC: --:--:--</div>
+        </div>
+    </div>
+
+    <!-- 地图容器 -->
+    <div id="map"></div>
+
+    <!-- 引入 Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <script>
+        // === 1. 配置数据 ===
+        // 定义主要城市，坐标，和 IANA 时区标识符
+        const cities = [
+            { name: "HELSINKI", lat: 60.1699, lng: 24.9384, tz: "Europe/Helsinki", isHome: true },
+            { name: "NEW YORK", lat: 40.7128, lng: -74.0060, tz: "America/New_York" },
+            { name: "LONDON", lat: 51.5074, lng: -0.1278, tz: "Europe/London" },
+            { name: "TOKYO", lat: 35.6762, lng: 139.6503, tz: "Asia/Tokyo" },
+            { name: "BEIJING", lat: 39.9042, lng: 116.4074, tz: "Asia/Shanghai" },
+            { name: "SYDNEY", lat: -33.8688, lng: 151.2093, tz: "Australia/Sydney" },
+            { name: "DUBAI", lat: 25.2048, lng: 55.2708, tz: "Asia/Dubai" },
+            { name: "LOS ANGELES", lat: 34.0522, lng: -118.2437, tz: "America/Los_Angeles" },
+            { name: "MOSCOW", lat: 55.7558, lng: 37.6173, tz: "Europe/Moscow" },
+            { name: "SINGAPORE", lat: 1.3521, lng: 103.8198, tz: "Asia/Singapore" },
+            { name: "SAO PAULO", lat: -23.5505, lng: -46.6333, tz: "America/Sao_Paulo" }
+        ];
+
+        // === 2. 初始化地图 ===
+        // 禁用缩放控制，使其看起来更像一个仪表盘壁纸
+        const map = L.map('map', {
+            zoomControl: false,
+            attributionControl: true,
+            zoomSnap: 0.1,
+            worldCopyJump: true // 允许地图左右无限循环
+        }).setView([30, 10], 2.5); // 初始视角
+
+        // 使用 CartoDB Dark Matter 底图 (深色风格)
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 19
+        }).addTo(map);
+
+        // === 3. 标记管理系统 ===
+        const markers = {};
+
+        // 创建自定义图标函数
+        function createCustomIcon(city, timeStr, dateStr, dayStr) {
+            const isHighlight = city.isHome ? 'highlight' : '';
+            const cityId = city.name.replace(/\s/g, ''); // 移除空格作为ID
+            
+            return L.divIcon({
+                className: 'custom-div-icon',
+                html: `
+                    <div class="city-label ${isHighlight}">
+                        <strong>${city.name}</strong>
+                        <span id="time-${cityId}" class="time-display">${timeStr}</span>
+                        <div class="date-info">${dayStr} ${dateStr}</div>
+                        <div id="weather-${cityId}" class="weather-info">--</div>
+                    </div>
+                `,
+                // 调整 Icon 大小: 宽度增加到 150 以容纳更长的温度信息 (最高/最低)
+                iconSize: [150, 85], 
+                iconAnchor: [75, 42] // 重新居中 (150/2 = 75)
+            });
+        }
+
+        // 初始化标记
+        cities.forEach(city => {
+            const marker = L.marker([city.lat, city.lng], {
+                icon: createCustomIcon(city, "--:--", "--", "--"),
+                zIndexOffset: city.isHome ? 10000 : 0 // 关键修改：给所在城市极高的层级偏移，确保物理置顶
+            }).addTo(map);
+            
+            markers[city.name] = marker;
+        });
+
+        // === 4. 时间同步与更新逻辑 ===
+        let timeOffset = 0; // 与真实网络时间的偏差（毫秒）
+
+        // 模拟网络时间同步 (真实请求)
+        async function syncNetworkTime() {
+            try {
+                // 使用 WorldTimeAPI 获取当前的真实 UTC 时间
+                const response = await fetch('https://worldtimeapi.org/api/ip');
+                const data = await response.json();
+                
+                // 计算本地系统时间与网络时间的偏差
+                const networkTime = new Date(data.utc_datetime).getTime();
+                const localTime = new Date().getTime();
+                timeOffset = networkTime - localTime;
+                
+                console.log("Network time synced. Offset:", timeOffset);
+                
+            } catch (error) {
+                console.error("Network Sync Failed, falling back to system time", error);
+                timeOffset = 0; // 失败则不进行偏移修正
+            }
+        }
+
+        // === 5. 天气获取逻辑 (Open-Meteo) ===
+        
+        // 恢复：WMO 天气代码转 Emoji
+        function getWeatherEmoji(code) {
+            // 0: Clear sky
+            if (code === 0) return "☀️";
+            // 1, 2, 3: Mainly clear, partly cloudy, and overcast
+            if (code >= 1 && code <= 3) return "☁️";
+            // 45, 48: Fog
+            if (code >= 45 && code <= 48) return "🌫️";
+            // 51-67: Drizzle & Rain
+            if (code >= 51 && code <= 67) return "🌧️";
+            // 71-77: Snow
+            if (code >= 71 && code <= 77) return "❄️";
+            // 80-82: Rain showers
+            if (code >= 80 && code <= 82) return "🌦️";
+            // 85-86: Snow showers
+            if (code >= 85 && code <= 86) return "❄️";
+            // 95-99: Thunderstorm
+            if (code >= 95) return "⛈️";
+            return "🌡️";
+        }
+
+        async function updateWeather() {
+            // 移除了 UI 状态更新代码，只保留核心逻辑
+            for (const city of cities) {
+                try {
+                    // 请求当前天气 + 每日最高/最低温 (需要指定 timezone 以准确获取当天的极值)
+                    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current_weather=true&daily=temperature_2m_max,temperature_2m_min&timezone=${city.tz}`);
+                    const data = await res.json();
+                    
+                    if (data.current_weather && data.daily) {
+                        const temp = Math.round(data.current_weather.temperature);
+                        const code = data.current_weather.weathercode;
+                        const emoji = getWeatherEmoji(code); // 获取 Emoji
+                        
+                        // 获取当天的最高和最低温 (数组第0项代表今天)
+                        const minTemp = Math.round(data.daily.temperature_2m_min[0]);
+                        const maxTemp = Math.round(data.daily.temperature_2m_max[0]);
+
+                        // 更新 DOM
+                        const cityId = city.name.replace(/\s/g, '');
+                        const weatherEl = document.getElementById(`weather-${cityId}`);
+                        if (weatherEl) {
+                            // 格式优化: Emoji 当前温 <分隔符> 低温/高温
+                            // 使用 innerHTML 以支持 span 样式
+                            weatherEl.innerHTML = `${emoji} ${temp}°C<span class="weather-divider">|</span><span class="temp-range">${minTemp}°/${maxTemp}°</span>`; 
+                        }
+                    }
+                } catch (e) {
+                    console.error(`Failed to fetch weather for ${city.name}`, e);
+                }
+            }
+        }
+
+        // 核心时钟循环 (每秒更新)
+        function updateClock() {
+            // 当前真实时间 = 本地时间 + 网络偏差
+            const now = new Date(new Date().getTime() + timeOffset);
+
+            // 更新 UTC 显示
+            document.getElementById('utc-time').innerText = "UTC: " + now.toLocaleTimeString('en-US', { timeZone: 'UTC', hour12: false });
+
+            // 更新每个城市的标记
+            cities.forEach(city => {
+                // 使用 Intl.DateTimeFormat 获取特定时区的时间
+                const optionsTime = { 
+                    timeZone: city.tz, 
+                    hour12: false, 
+                    hour: '2-digit', 
+                    minute: '2-digit',
+                    second: '2-digit'
+                };
+                const optionsDate = { timeZone: city.tz, month: 'short', day: 'numeric' };
+                const optionsDay = { timeZone: city.tz, weekday: 'short' };
+
+                const timeStr = new Intl.DateTimeFormat('en-US', optionsTime).format(now);
+                const dateStr = new Intl.DateTimeFormat('en-US', optionsDate).format(now);
+                const dayStr = new Intl.DateTimeFormat('en-US', optionsDay).format(now).toUpperCase();
+
+                const timeEl = document.getElementById(`time-${city.name.replace(/\s/g, '')}`);
+                if (timeEl) {
+                    timeEl.innerText = timeStr;
+                }
+            });
+        }
+
+        // 启动程序
+        syncNetworkTime(); 
+        updateWeather();   
+        
+        setInterval(updateClock, 1000); 
+        setInterval(syncNetworkTime, 600000); 
+        setInterval(updateWeather, 1800000); 
+
+        // 适配屏幕大小调整地图
+        window.addEventListener('resize', () => {
+            map.invalidateSize();
+        });
+
+    </script>
+</body>
+</html>
