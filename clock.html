@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Global Time Monitor - English Search</title>
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0b0c10">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌍</text></svg>">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        :root {
+            --bg-color: #0b0c10;
+            --text-color: #66fcf1;
+            --accent-color: #45a29e;
+            --highlight-color: #ff0055;
+        }
+
+        body, html {
+            height: 100%;
+            margin: 0;
+            background-color: var(--bg-color);
+            font-family: 'Share Tech Mono', monospace;
+            overflow: hidden;
+            color: white;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+            z-index: 1;
+            background: #0b0c10;
+            transition: all 0.5s ease;
+        }
+
+        /* === 城市卡片样式 === */
+        .city-label {
+            background: rgba(20, 25, 30, 0.45); 
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(100, 255, 218, 0.2);
+            border-radius: 16px;
+            padding: 8px 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease, border-color 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            transform-origin: center center;
+            cursor: pointer;
+        }
+        .city-label:hover {
+            border-color: rgba(100, 255, 218, 0.6);
+            box-shadow: 0 0 25px rgba(100, 255, 218, 0.2);
+        }
+
+        .map-zoomed-in .city-label {
+            transform: scale(1.8);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.5);
+            border-color: rgba(100, 255, 218, 0.4);
+            background: rgba(20, 25, 30, 0.6);
+            z-index: 10000;
+        }
+
+        .map-zoomed-in .city-label.highlight {
+            transform: scale(2.2);
+            box-shadow: 0 0 60px rgba(255, 0, 85, 0.5);
+            border-width: 1.5px;
+        }
+
+        .header-section {
+            width: 100%;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1); 
+            padding-bottom: 4px;
+            margin-bottom: 4px;
+        }
+
+        .city-label strong {
+            display: block; font-size: 11px; color: rgba(255, 255, 255, 0.6); letter-spacing: 1px; line-height: 1.2;
+        }
+        .city-label span.time-display {
+            font-size: 24px; color: var(--text-color); font-weight: bold; display: block; line-height: 1.1; margin: 2px 0;
+            text-shadow: 0 0 5px rgba(102, 252, 241, 0.4);
+        }
+        .city-label .date-info { font-size: 10px; color: #aaa; line-height: 1.2; }
+
+        .env-grid { display: grid; grid-template-columns: 1fr 1px 1fr; width: 100%; align-items: center; gap: 4px; }
+        .vertical-divider { width: 1px; height: 24px; background: rgba(255,255,255,0.15); }
+        .weather-col, .sun-col { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .weather-main { font-size: 14px; font-weight: bold; color: #fff; display: flex; align-items: center; gap: 4px; }
+        .weather-range { font-size: 9px; color: #bbb; opacity: 0.8; margin-top: -2px; }
+        .sun-col { font-size: 9px; color: #ccc; line-height: 1.3; }
+        .sun-row { display: flex; align-items: center; gap: 3px; }
+        .weather-icon-anim { display: inline-block; animation: breathe 3s ease-in-out infinite; }
+        @keyframes breathe { 0% { transform: scale(1); opacity: 0.9; } 50% { transform: scale(1.1); opacity: 1; } 100% { transform: scale(1); opacity: 0.9; } }
+
+        .city-label.highlight {
+            border-color: var(--highlight-color); border-width: 1px; background: rgba(40, 0, 15, 0.5); 
+            box-shadow: 0 0 35px rgba(255, 0, 85, 0.35); transform: scale(1.25); z-index: 9999 !important;
+        }
+        .city-label.highlight span.time-display { color: #ff3377; font-size: 28px; text-shadow: 0 0 15px rgba(255, 0, 85, 0.6); }
+        .city-label.highlight strong { color: #fff; font-weight: 900; }
+        .city-label.highlight .weather-main { color: #ff99bb; }
+        .city-label.highlight .weather-range { color: #ffcce0; }
+        .city-label.highlight .sun-col { color: #ffcce0; }
+        .city-label.highlight .vertical-divider { background: rgba(255, 0, 85, 0.3); }
+
+        /* === 右上角工具栏 === */
+        .top-right-bar {
+            position: absolute; top: 20px; right: 20px; z-index: 1000;
+            display: flex; gap: 10px; align-items: center;
+        }
+        .fullscreen-btn {
+            background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(5px);
+            border: 1px solid rgba(102, 252, 241, 0.2); color: var(--text-color);
+            padding: 10px; border-radius: 12px; cursor: pointer; transition: all 0.3s ease;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .fullscreen-btn:hover { background: rgba(102, 252, 241, 0.15); border-color: var(--text-color); transform: scale(1.05); }
+        .fullscreen-btn svg { width: 24px; height: 24px; fill: currentColor; }
+
+        .search-container {
+            position: relative; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(5px);
+            border: 1px solid rgba(102, 252, 241, 0.2); border-radius: 12px; padding: 5px 10px;
+            display: flex; align-items: center; transition: all 0.3s ease;
+        }
+        .search-container:hover, .search-container:focus-within { background: rgba(0, 0, 0, 0.6); border-color: var(--text-color); box-shadow: 0 0 15px rgba(102, 252, 241, 0.2); }
+        .search-input { background: transparent; border: none; color: white; font-family: 'Share Tech Mono', monospace; font-size: 14px; outline: none; width: 140px; transition: width 0.3s ease; }
+        .search-container:focus-within .search-input { width: 200px; }
+        .search-btn { background: transparent; border: none; color: var(--text-color); cursor: pointer; padding: 5px; }
+        .search-btn:hover { color: white; }
+
+        /* 左上角面板 */
+        .overlay-ui { position: absolute; top: 20px; left: 20px; z-index: 1000; pointer-events: none; }
+        .system-status {
+            background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(8px);
+            border: 1px solid rgba(102, 252, 241, 0.2); padding: 20px; border-radius: 12px; min-width: 200px; pointer-events: auto;
+        }
+        .leaflet-control-attribution { background: rgba(0,0,0,0.2) !important; color: #555 !important; backdrop-filter: blur(2px); }
+        .leaflet-control-attribution a { color: #777 !important; }
+
+        .secondary-dot-icon {
+            border-radius: 50%; background: var(--text-color); box-shadow: 0 0 10px var(--text-color);
+            border: 2px solid rgba(0,0,0,0.5); transition: all 0.3s ease;
+        }
+        .secondary-dot-icon:hover { transform: scale(1.8); box-shadow: 0 0 20px var(--text-color); background: white; z-index: 9999 !important; }
+        
+        .search-beacon { background: #ff0055; border-radius: 50%; box-shadow: 0 0 0 0 rgba(255, 0, 85, 0.7); animation: beacon-pulse 1.5s infinite; }
+        @keyframes beacon-pulse { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 0, 85, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 20px rgba(255, 0, 85, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 0, 85, 0); } }
+
+        /* Popup */
+        .leaflet-popup-content-wrapper { background: transparent !important; box-shadow: none !important; padding: 0 !important; border-radius: 0 !important; }
+        .leaflet-popup-tip { background: rgba(20, 25, 30, 0.6) !important; backdrop-filter: blur(8px); }
+        .leaflet-popup-content { margin: 0 !important; width: auto !important; }
+        .leaflet-container a.leaflet-popup-close-button { color: #ccc !important; font-size: 18px !important; top: 5px !important; right: 5px !important; z-index: 1000; }
+        .leaflet-container a.leaflet-popup-close-button:hover { color: #fff !important; }
+
+        /* === 详情模态框 === */
+        #details-modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(15px);
+            z-index: 20000;
+            display: none; flex-direction: column; align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.3s ease;
+        }
+        #details-modal.active { display: flex; opacity: 1; }
+        
+        .modal-content {
+            background: rgba(20, 25, 30, 0.6);
+            border: 1px solid var(--text-color);
+            box-shadow: 0 0 50px rgba(102, 252, 241, 0.15);
+            border-radius: 20px;
+            width: 90%; max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            position: relative;
+            padding: 30px;
+            color: white;
+        }
+        
+        .close-modal {
+            position: absolute; top: 15px; right: 20px;
+            font-size: 30px; cursor: pointer; color: #777;
+            transition: color 0.2s;
+        }
+        .close-modal:hover { color: var(--highlight-color); }
+
+        .clothing-advice {
+            background: rgba(102, 252, 241, 0.1);
+            border-left: 4px solid var(--text-color);
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .forecast-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .forecast-item {
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            padding: 10px 5px;
+            text-align: center;
+            font-size: 12px;
+        }
+        .forecast-date { color: #aaa; margin-bottom: 5px; font-size: 10px; }
+        .forecast-icon { font-size: 24px; margin: 5px 0; }
+        .forecast-temp { font-weight: bold; color: white; }
+
+        .modal-content::-webkit-scrollbar { width: 6px; }
+        .modal-content::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
+        .modal-content::-webkit-scrollbar-thumb { background: var(--text-color); border-radius: 3px; }
+
+    </style>
+</head>
+<body>
+
+    <div class="overlay-ui">
+        <div class="system-status">
+            <h1 class="text-xl font-bold mb-1" style="color: var(--text-color);">WORLD CLOCK</h1>
+            <div id="location-display" class="text-xs text-gray-400 mb-4">DETECTING LOCATION...</div>
+            <div id="utc-time" class="text-3xl mt-2 text-white font-bold tracking-wider">UTC: --:--:--</div>
+        </div>
+    </div>
+
+    <!-- 右上角工具栏 -->
+    <div class="top-right-bar">
+        <div class="search-container">
+            <!-- 纯英文提示 -->
+            <input type="text" id="search-input" class="search-input" placeholder="Search City (English)..." onkeypress="handleEnter(event)">
+            <button id="search-btn-icon" class="search-btn" onclick="searchCity()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                </svg>
+            </button>
+        </div>
+        <button id="fullscreen-btn" class="fullscreen-btn" title="Toggle Fullscreen">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- 二级详细菜单模态框 -->
+    <div id="details-modal">
+        <div class="modal-content">
+            <div class="close-modal" onclick="closeDetailsModal()">&times;</div>
+            <h2 id="modal-city-name" class="text-3xl font-bold mb-2 text-cyan-400">CITY NAME</h2>
+            <div class="text-sm text-gray-400 mb-6 font-mono">15-DAY FORECAST & ADVISORY</div>
+            <div id="clothing-advice-box" class="clothing-advice">Loading advice...</div>
+            <div id="forecast-list" class="forecast-grid"></div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <script>
+        // === 1. 主要城市 ===
+        let primaryCities = [
+            { name: "HELSINKI", lat: 60.1699, lng: 24.9384, tz: "Europe/Helsinki" },
+            { name: "NEW YORK", lat: 40.7128, lng: -74.0060, tz: "America/New_York" },
+            { name: "LONDON", lat: 51.5074, lng: -0.1278, tz: "Europe/London" },
+            { name: "TOKYO", lat: 35.6762, lng: 139.6503, tz: "Asia/Tokyo" },
+            { name: "BEIJING", lat: 39.9042, lng: 116.4074, tz: "Asia/Shanghai" },
+            { name: "SYDNEY", lat: -33.8688, lng: 151.2093, tz: "Australia/Sydney" },
+            { name: "DUBAI", lat: 25.2048, lng: 55.2708, tz: "Asia/Dubai" },
+            { name: "LOS ANGELES", lat: 34.0522, lng: -118.2437, tz: "America/Los_Angeles" },
+            { name: "MOSCOW", lat: 55.7558, lng: 37.6173, tz: "Europe/Moscow" },
+            { name: "SINGAPORE", lat: 1.3521, lng: 103.8198, tz: "Asia/Singapore" },
+            { name: "SAO PAULO", lat: -23.5505, lng: -46.6333, tz: "America/Sao_Paulo" }
+        ];
+
+        // === 2. 次级城市 ===
+        const secondaryCities = [
+            // 欧洲
+            { name: "PARIS", lat: 48.8566, lng: 2.3522, tz: "Europe/Paris" },
+            { name: "BERLIN", lat: 52.5200, lng: 13.4050, tz: "Europe/Berlin" },
+            { name: "ROME", lat: 41.9028, lng: 12.4964, tz: "Europe/Rome" },
+            { name: "MADRID", lat: 40.4168, lng: -3.7038, tz: "Europe/Madrid" },
+            { name: "AMSTERDAM", lat: 52.3676, lng: 4.9041, tz: "Europe/Amsterdam" },
+            { name: "VIENNA", lat: 48.2082, lng: 16.3738, tz: "Europe/Vienna" },
+            { name: "STOCKHOLM", lat: 59.3293, lng: 18.0686, tz: "Europe/Stockholm" },
+            { name: "WARSAW", lat: 52.2297, lng: 21.0122, tz: "Europe/Warsaw" },
+            { name: "ATHENS", lat: 37.9838, lng: 23.7275, tz: "Europe/Athens" },
+            { name: "LISBON", lat: 38.7223, lng: -9.1393, tz: "Europe/Lisbon" },
+            { name: "DUBLIN", lat: 53.3498, lng: -6.2603, tz: "Europe/Dublin" },
+            { name: "ZURICH", lat: 47.3769, lng: 8.5417, tz: "Europe/Zurich" },
+            { name: "KYIV", lat: 50.4501, lng: 30.5234, tz: "Europe/Kyiv" },
+            { name: "ISTANBUL", lat: 41.0082, lng: 28.9784, tz: "Europe/Istanbul" },
+            // 非洲
+            { name: "CAIRO", lat: 30.0444, lng: 31.2357, tz: "Africa/Cairo" },
+            { name: "CAPE TOWN", lat: -33.9249, lng: 18.4241, tz: "Africa/Johannesburg" },
+            { name: "LAGOS", lat: 6.5244, lng: 3.3792, tz: "Africa/Lagos" },
+            { name: "NAIROBI", lat: -1.2921, lng: 36.8219, tz: "Africa/Nairobi" },
+            { name: "CASABLANCA", lat: 33.5731, lng: -7.5898, tz: "Africa/Casablanca" },
+            { name: "ADDIS ABABA", lat: 9.0300, lng: 38.7400, tz: "Africa/Addis_Ababa" },
+            { name: "ACCRA", lat: 5.6037, lng: -0.1870, tz: "Africa/Accra" },
+            // 亚洲
+            { name: "ULAANBAATAR", lat: 47.9188, lng: 106.9176, tz: "Asia/Ulaanbaatar" },
+            { name: "BANGKOK", lat: 13.7563, lng: 100.5018, tz: "Asia/Bangkok" },
+            { name: "JAKARTA", lat: -6.2088, lng: 106.8456, tz: "Asia/Jakarta" },
+            { name: "KUALA LUMPUR", lat: 3.1390, lng: 101.6869, tz: "Asia/Kuala_Lumpur" },
+            { name: "MANILA", lat: 14.5995, lng: 120.9842, tz: "Asia/Manila" },
+            { name: "HANOI", lat: 21.0285, lng: 105.8542, tz: "Asia/Bangkok" }, 
+            { name: "HO CHI MINH", lat: 10.8231, lng: 106.6297, tz: "Asia/Ho_Chi_Minh" },
+            { name: "SEOUL", lat: 37.5665, lng: 126.9780, tz: "Asia/Seoul" },
+            { name: "NEW DELHI", lat: 28.6139, lng: 77.2090, tz: "Asia/Kolkata" },
+            { name: "RIYADH", lat: 24.7136, lng: 46.6753, tz: "Asia/Riyadh" },
+            { name: "TEHRAN", lat: 35.6892, lng: 51.3890, tz: "Asia/Tehran" },
+            // 美洲
+            { name: "OTTAWA", lat: 45.4215, lng: -75.6972, tz: "America/Toronto" },
+            { name: "TORONTO", lat: 43.6532, lng: -79.3832, tz: "America/Toronto" },
+            { name: "VANCOUVER", lat: 49.2827, lng: -123.1207, tz: "America/Vancouver" },
+            { name: "CHICAGO", lat: 41.8781, lng: -87.6298, tz: "America/Chicago" },
+            { name: "SAN FRANCISCO", lat: 37.7749, lng: -122.4194, tz: "America/Los_Angeles" },
+            { name: "MEXICO CITY", lat: 19.4326, lng: -99.1332, tz: "America/Mexico_City" },
+            { name: "BUENOS AIRES", lat: -34.6037, lng: -58.3816, tz: "America/Argentina/Buenos_Aires" },
+            { name: "RIO DE JANEIRO", lat: -22.9068, lng: -43.1729, tz: "America/Sao_Paulo" },
+            { name: "BOGOTA", lat: 4.7110, lng: -74.0721, tz: "America/Bogota" },
+            { name: "SANTIAGO", lat: -33.4489, lng: -70.6693, tz: "America/Santiago" },
+            { name: "LIMA", lat: -12.0464, lng: -77.0428, tz: "America/Lima" }
+        ];
+
+        const map = L.map('map', { zoomControl: false, attributionControl: true, zoomSnap: 0.1, worldCopyJump: true }).setView([30, 10], 2.5);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OSM &copy; CARTO', subdomains: 'abcd', maxZoom: 19 }).addTo(map);
+
+        const primaryLayer = L.layerGroup().addTo(map);
+        const secondaryLayer = L.layerGroup().addTo(map);
+        const searchLayer = L.layerGroup().addTo(map);
+
+        function generateCardHtml(city, timeStr, dateStr, dayStr, weatherHtml) {
+            const isHighlight = city.isHome ? 'highlight' : '';
+            const cityId = city.name.replace(/[^a-zA-Z0-9]/g, '');
+            const weatherContent = weatherHtml || `
+                <div class="env-grid">
+                    <div class="weather-col" id="weather-col-${cityId}"><div class="weather-main"><span class="weather-icon-anim">--</span> --°</div><div class="weather-range">--/--</div></div>
+                    <div class="vertical-divider"></div>
+                    <div class="sun-col" id="sun-col-${cityId}"><div class="sun-row">🌅 --:--</div><div class="sun-row">🌇 --:--</div></div>
+                </div>`;
+            return `
+                <div class="city-label ${isHighlight}">
+                    <div class="header-section">
+                        <strong>${city.name}</strong>
+                        <span id="time-${cityId}" class="time-display">${timeStr}</span>
+                        <div class="date-info">${dayStr} ${dateStr}</div>
+                    </div>
+                    ${weatherContent}
+                </div>`;
+        }
+
+        function createPrimaryIcon(city) {
+            return L.divIcon({
+                className: 'custom-div-icon',
+                html: generateCardHtml(city, "--:--", "--", "--", null),
+                iconSize: [170, 100], iconAnchor: [85, 50]
+            });
+        }
+
+        function renderCities() {
+            primaryLayer.clearLayers();
+            primaryCities.forEach(city => {
+                const marker = L.marker([city.lat, city.lng], { 
+                    icon: createPrimaryIcon(city), 
+                    zIndexOffset: city.isHome ? 10000 : 100 
+                });
+                marker.on('click', () => openDetailsModal(city));
+                primaryLayer.addLayer(marker);
+            });
+
+            secondaryLayer.clearLayers();
+            secondaryCities.forEach(city => {
+                const dot = L.circleMarker([city.lat, city.lng], {
+                    radius: 5,
+                    fillColor: "#66fcf1",
+                    color: "transparent",
+                    weight: 15, // 点击热区
+                    opacity: 0,
+                    fillOpacity: 0.8,
+                    interactive: true,
+                    className: 'interactive-dot secondary-dot-icon'
+                });
+
+                dot.on('click', async (e) => {
+                    showCityPopup(city, e.latlng);
+                });
+
+                secondaryLayer.addLayer(dot);
+            });
+
+            updateClock();
+            updateWeather();
+        }
+
+        async function showCityPopup(city, latlng) {
+            const popupContent = document.createElement('div');
+            popupContent.innerHTML = `<div class="city-label" style="min-width:150px; min-height:80px; justify-content:center; display:flex; align-items:center;">Loading...</div>`;
+            const popup = L.popup({ offset: [0, -5], closeButton: true, autoPan: true, className: 'glass-popup' })
+                .setLatLng(latlng).setContent(popupContent).openOn(map);
+
+            setTimeout(() => {
+                const wrapper = document.querySelector('.leaflet-popup-content');
+                if(wrapper) { wrapper.style.cursor = "pointer"; wrapper.onclick = () => openDetailsModal(city); }
+            }, 100);
+
+            const now = new Date(new Date().getTime() + timeOffset);
+            const optionsTime = { timeZone: city.tz, hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' };
+            const optionsDate = { timeZone: city.tz, month: 'short', day: 'numeric' };
+            const optionsDay = { timeZone: city.tz, weekday: 'short' };
+            const timeStr = new Intl.DateTimeFormat('en-US', optionsTime).format(now);
+            const dateStr = new Intl.DateTimeFormat('en-US', optionsDate).format(now);
+            const dayStr = new Intl.DateTimeFormat('en-US', optionsDay).format(now).toUpperCase();
+
+            let weatherHtml = null;
+            try {
+                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=${city.tz}`);
+                const data = await res.json();
+                if (data.current_weather && data.daily) {
+                    const temp = Math.round(data.current_weather.temperature);
+                    const code = data.current_weather.weathercode;
+                    const isDay = data.current_weather.is_day;
+                    const emoji = getWeatherEmoji(code, isDay);
+                    const minTemp = Math.round(data.daily.temperature_2m_min[0]);
+                    const maxTemp = Math.round(data.daily.temperature_2m_max[0]);
+                    const sunrise = extractTime(data.daily.sunrise[0]);
+                    const sunset = extractTime(data.daily.sunset[0]);
+                    const cityId = city.name.replace(/[^a-zA-Z0-9]/g, '');
+                    weatherHtml = `
+                        <div class="env-grid">
+                            <div class="weather-col" id="weather-col-${cityId}"><div class="weather-main"><span class="weather-icon-anim">${emoji}</span> ${temp}°</div><div class="weather-range">${minTemp}° / ${maxTemp}°</div></div>
+                            <div class="vertical-divider"></div>
+                            <div class="sun-col" id="sun-col-${cityId}"><div class="sun-row">🌅 ${sunrise}</div><div class="sun-row">🌇 ${sunset}</div></div>
+                        </div>`;
+                }
+            } catch(err) { console.error(err); }
+
+            popup.setContent(generateCardHtml(city, timeStr, dateStr, dayStr, weatherHtml));
+            setTimeout(() => {
+                const wrapper = document.querySelector('.leaflet-popup-content');
+                if(wrapper) { wrapper.onclick = () => openDetailsModal(city); wrapper.title = "Click for 15-day forecast"; }
+            }, 50);
+        }
+
+        // === 详情模态框逻辑 ===
+        function openDetailsModal(city) {
+            const modal = document.getElementById('details-modal');
+            const title = document.getElementById('modal-city-name');
+            const list = document.getElementById('forecast-list');
+            const adviceBox = document.getElementById('clothing-advice-box');
+            title.innerText = city.name;
+            list.innerHTML = '<div class="text-center w-full p-4">Loading forecast data...</div>';
+            adviceBox.innerHTML = 'Analyzing weather conditions...';
+            modal.classList.add('active');
+            fetchExtendedForecast(city);
+        }
+        function closeDetailsModal() { document.getElementById('details-modal').classList.remove('active'); }
+
+        async function fetchExtendedForecast(city) {
+            try {
+                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=${city.tz}&forecast_days=16`);
+                const data = await res.json();
+                if (data.daily) { renderForecastList(data.daily); generateClothingAdvice(data.daily); }
+            } catch (e) { document.getElementById('forecast-list').innerHTML = "Failed to load forecast."; }
+        }
+
+        function renderForecastList(daily) {
+            const list = document.getElementById('forecast-list');
+            list.innerHTML = '';
+            for (let i = 0; i < daily.time.length; i++) {
+                const date = new Date(daily.time[i]);
+                const dayStr = date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' });
+                const max = Math.round(daily.temperature_2m_max[i]);
+                const min = Math.round(daily.temperature_2m_min[i]);
+                const code = daily.weathercode[i];
+                const emoji = getWeatherEmoji(code, 1);
+                const item = document.createElement('div');
+                item.className = 'forecast-item';
+                item.innerHTML = `<div class="forecast-date">${dayStr}</div><div class="forecast-icon">${emoji}</div><div class="forecast-temp">${max}° <span style="font-size:10px;color:#888">${min}°</span></div>`;
+                list.appendChild(item);
+            }
+        }
+
+        function generateClothingAdvice(daily) {
+            const adviceBox = document.getElementById('clothing-advice-box');
+            const todayMax = daily.temperature_2m_max[0];
+            const code = daily.weathercode[0];
+            let advice = "<strong>Clothing Suggestion:</strong> ";
+            if (todayMax < 0) advice += "It's freezing! Wear a heavy winter coat, scarf, gloves, and thermal layers. ";
+            else if (todayMax < 10) advice += "Chilly weather. A warm coat or down jacket is recommended. ";
+            else if (todayMax < 20) advice += "Cool. A light jacket, hoodie, or sweater should be fine. ";
+            else if (todayMax < 28) advice += "Pleasant and warm. T-shirt and light pants are comfortable. ";
+            else advice += "It's hot! Wear breathable, light clothing like shorts and t-shirts. ";
+            if (code >= 51 && code <= 67 || code >= 80) advice += "Rain is expected, don't forget your umbrella ☂️. ";
+            else if (code >= 71) advice += "Snow expected, wear waterproof boots ❄️. ";
+            else if (code <= 3) advice += "Conditions look clear/cloudy. Sunglasses might be useful 🕶️. ";
+            adviceBox.innerHTML = advice;
+        }
+
+        // --- 搜索功能 (英文专用) ---
+        function handleEnter(e) { if (e.key === 'Enter') searchCity(); }
+        async function searchCity() {
+            const input = document.getElementById('search-input');
+            const query = input.value.trim();
+            const btn = document.getElementById('search-btn-icon');
+            if (!query) return;
+            
+            searchLayer.clearLayers();
+            btn.innerHTML = "..."; 
+
+            try {
+                // 关键修正：重新加入 language=en 强制返回英文结果，确保数据格式统一
+                const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`);
+                const data = await response.json();
+
+                if (data.results && data.results.length > 0) {
+                    const result = data.results[0];
+                    const lat = result.latitude;
+                    const lng = result.longitude;
+                    const name = result.name.toUpperCase();
+                    const tz = result.timezone;
+                    const foundCity = { name: name, lat: lat, lng: lng, tz: tz };
+
+                    const beacon = L.circleMarker([lat, lng], {
+                        radius: 8, color: '#ff0055', fillColor: '#ff0055', fillOpacity: 0.5, className: 'search-beacon'
+                    });
+                    searchLayer.addLayer(beacon);
+                    map.setView([lat, lng], 5, { animate: true });
+                    setTimeout(() => { showCityPopup(foundCity, [lat, lng]); }, 500);
+                    input.value = ""; input.placeholder = `FOUND: ${name}`;
+                } else { alert("City not found."); }
+            } catch (error) { console.error("Search failed:", error); }
+            finally {
+                btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg>`;
+            }
+        }
+
+        map.on('zoomend', () => {
+            const currentZoom = map.getZoom();
+            const mapContainer = document.getElementById('map');
+            if (currentZoom > 5) mapContainer.classList.add('map-zoomed-in');
+            else mapContainer.classList.remove('map-zoomed-in');
+        });
+
+        let timeOffset = 0;
+        async function syncNetworkTime() {
+            try {
+                const response = await fetch('https://worldtimeapi.org/api/ip');
+                const data = await response.json();
+                timeOffset = new Date(data.utc_datetime).getTime() - new Date().getTime();
+            } catch (e) {}
+        }
+        function extractTime(isoString) { if (!isoString) return '--:--'; const parts = isoString.split('T'); return parts.length > 1 ? parts[1] : '--:--'; }
+        function getWeatherEmoji(code, isDay) {
+            if (code === 0) return isDay ? "☀️" : "🌙";
+            if (code >= 1 && code <= 3) return isDay ? "⛅" : "☁️";
+            if (code >= 45 && code <= 48) return "🌫️";
+            if (code >= 51 && code <= 67) return "🌧️";
+            if (code >= 71 && code <= 77) return "❄️";
+            if (code >= 80 && code <= 82) return isDay ? "🌦️" : "🌧️";
+            if (code >= 85 && code <= 86) return "❄️";
+            if (code >= 95) return "⛈️";
+            return "🌡️";
+        }
+        async function updateWeather() {
+            for (const city of primaryCities) {
+                try {
+                    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lng}&current_weather=true&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=${city.tz}`);
+                    const data = await res.json();
+                    if (data.current_weather && data.daily) {
+                        const temp = Math.round(data.current_weather.temperature);
+                        const code = data.current_weather.weathercode;
+                        const isDay = data.current_weather.is_day;
+                        const emoji = getWeatherEmoji(code, isDay);
+                        const minTemp = Math.round(data.daily.temperature_2m_min[0]);
+                        const maxTemp = Math.round(data.daily.temperature_2m_max[0]);
+                        const sunrise = extractTime(data.daily.sunrise[0]);
+                        const sunset = extractTime(data.daily.sunset[0]);
+                        const cityId = city.name.replace(/[^a-zA-Z0-9]/g, '');
+                        const weatherCol = document.getElementById(`weather-col-${cityId}`);
+                        if (weatherCol) weatherCol.innerHTML = `<div class="weather-main"><span class="weather-icon-anim">${emoji}</span> ${temp}°</div><div class="weather-range">${minTemp}° / ${maxTemp}°</div>`;
+                        const sunCol = document.getElementById(`sun-col-${cityId}`);
+                        if (sunCol) sunCol.innerHTML = `<div class="sun-row">🌅 ${sunrise}</div><div class="sun-row">🌇 ${sunset}</div>`;
+                    }
+                } catch (e) {}
+            }
+        }
+        function updateClock() {
+            const now = new Date(new Date().getTime() + timeOffset);
+            document.getElementById('utc-time').innerText = "UTC: " + now.toLocaleTimeString('en-US', { timeZone: 'UTC', hour12: false });
+            primaryCities.forEach(city => {
+                try {
+                    const optionsTime = { timeZone: city.tz, hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' };
+                    const optionsDate = { timeZone: city.tz, month: 'short', day: 'numeric' };
+                    const optionsDay = { timeZone: city.tz, weekday: 'short' };
+                    const timeStr = new Intl.DateTimeFormat('en-US', optionsTime).format(now);
+                    const dateStr = new Intl.DateTimeFormat('en-US', optionsDate).format(now);
+                    const dayStr = new Intl.DateTimeFormat('en-US', optionsDay).format(now).toUpperCase();
+                    const cityId = city.name.replace(/[^a-zA-Z0-9]/g, '');
+                    const timeEl = document.getElementById(`time-${cityId}`);
+                    if (timeEl) {
+                        timeEl.innerText = timeStr;
+                        const parent = timeEl.closest('.city-label');
+                        if (parent) {
+                            const dateEl = parent.querySelector('.date-info');
+                            if(dateEl) dateEl.innerText = `${dayStr} ${dateStr}`;
+                        }
+                    }
+                } catch (e) {}
+            });
+        }
+        function initUserLocation() {
+            const locDisplay = document.getElementById('location-display');
+            const fallbackToDefault = () => {
+                locDisplay.innerText = "LOCATION: HELSINKI (DEFAULT)";
+                const helsinki = primaryCities.find(c => c.name === "HELSINKI");
+                if (helsinki) helsinki.isHome = true;
+                renderCities();
+            };
+            if (!navigator.geolocation) { fallbackToDefault(); return; }
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                    const userLocation = { name: "MY LOCATION", lat: lat, lng: lng, tz: userTz, isHome: true };
+                    primaryCities.push(userLocation);
+                    locDisplay.innerText = `LOCATION: DETECTED (${userTz.split('/')[1] || 'LOCAL'})`;
+                    map.setView([lat, lng], 4);
+                    renderCities();
+                },
+                (error) => { console.warn("Location error:", error); fallbackToDefault(); },
+                { timeout: 10000 }
+            );
+        }
+
+        syncNetworkTime();
+        initUserLocation();
+        setInterval(updateClock, 1000); 
+        setInterval(syncNetworkTime, 600000); 
+        setInterval(updateWeather, 3600000); 
+        window.addEventListener('resize', () => { map.invalidateSize(); });
+        const fullscreenBtn = document.getElementById('fullscreen-btn');
+        fullscreenBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) { document.documentElement.requestFullscreen().catch(err => {}); } 
+            else { if (document.exitFullscreen) document.exitFullscreen(); }
+        });
+    </script>
+</body>
+</html>
